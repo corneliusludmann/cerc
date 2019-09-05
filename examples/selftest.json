@@ -1,0 +1,24 @@
+{
+    "address": "localhost:8080",
+    "defaultPeriod": "10s",
+    "pathways": [
+        {
+            "name": "selftest-positive",
+            "endpoint": "http://localhost:8080/selftest/positive",
+            "method": "POST"
+        },
+        {
+            "name": "selftest-fails",
+            "endpoint": "http://localhost:8080/selftest/fails",
+            "method": "POST"
+        },
+        {
+            "name": "selftest-resp-timeout",
+            "endpoint": "http://localhost:8080/selftest/resp-timeout",
+            "method": "POST",
+            "timeouts": {
+                "response": "500ms"
+            }
+        }
+    ]
+}
