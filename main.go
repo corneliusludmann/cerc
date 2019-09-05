@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/32leaves/cerc/pkg/cerc"
 
@@ -49,7 +50,7 @@ func main() {
 		log.WithError(err).Fatal("cannot read configuration")
 	}
 
-	c, err := cerc.Start(cfg)
+	c, err := cerc.Start(cfg, loggingReporter{})
 	if err != nil {
 		log.WithError(err).Fatal("cannot start cerc service")
 	}
@@ -58,4 +59,18 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
+}
+
+type loggingReporter struct{}
+
+func (loggingReporter) Success(pathway string, dur time.Duration) {
+	log.WithField("pathway", pathway).WithField("duration", dur).Info("circle complete")
+}
+
+func (loggingReporter) Failed(pathway, reason string) {
+	log.WithField("pathway", pathway).WithField("reason", reason).Warn("pathway probe failed")
+}
+
+func (loggingReporter) NonStarter(pathway, reason string) {
+	log.WithField("pathway", pathway).WithField("reason", reason).Warn("pathway probe failed to start")
 }

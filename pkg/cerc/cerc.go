@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/satori/go.uuid"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/xerrors"
 )
 
@@ -174,7 +173,7 @@ const (
 func (r *runner) probe(tkn string) {
 	responseURL, err := r.C.buildResponseURL(r.P.Name, tkn)
 	if err != nil {
-		log.WithField("pathway", r.P.Name).WithError(err).Warn("cannot build resposne URL")
+		go r.C.Reporter.NonStarter(r.P.Name, fmt.Sprintf("cannot build response URL: %v", err))
 		return
 	}
 
@@ -219,8 +218,7 @@ func (r *runner) failProbeIfUnresolved(tkn, reason string) {
 	delete(r.active, tkn)
 	r.mu.Unlock()
 
-	// TODO: tell someone about this
-	log.WithField("pathway", r.P.Name).WithField("reason", reason).Warn("pathway probe failed")
+	go r.C.Reporter.Failed(r.P.Name, reason)
 }
 
 func (r *runner) Answer(tkn string) (ok bool) {
@@ -236,7 +234,7 @@ func (r *runner) Answer(tkn string) (ok bool) {
 
 	// TODO: tell someone about our success here
 	dur := time.Since(p.Started)
-	log.WithField("pathway", r.P.Name).WithField("duration", dur).Info("circle complete")
+	go r.C.Reporter.Success(r.P.Name, dur)
 
 	return true
 }
@@ -248,14 +246,28 @@ type probe struct {
 
 // Cerc is the service itself - create with New()
 type Cerc struct {
-	Config Options
+	Config   Options
+	Reporter Reporter
 
 	runners map[string]*runner
 	router  *http.ServeMux
 }
 
+// Reporter gets notified when a probe has run
+type Reporter interface {
+	// Success is called when a pathway was successfully probed
+	Success(pathway string, duration time.Duration)
+
+	// Failed is called when a pathway probe failed to respond, e.g. we never got a callback or the callback
+	// indicated failure.
+	Failed(pathway string, reason string)
+
+	// NonStarter is called when we were unable to start a prope due to an internal error
+	NonStarter(pathway string, reason string)
+}
+
 // Start creates a new cerc instance after validating its configuration
-func Start(cfg Options) (c *Cerc, err error) {
+func Start(cfg Options, rep Reporter) (c *Cerc, err error) {
 	cfg.fillInDefaults()
 	err = cfg.validate()
 	if err != nil {
@@ -263,7 +275,8 @@ func Start(cfg Options) (c *Cerc, err error) {
 	}
 
 	c = &Cerc{
-		Config: cfg,
+		Config:   cfg,
+		Reporter: rep,
 	}
 	c.routes()
 	go http.ListenAndServe(cfg.Address, c.router)
