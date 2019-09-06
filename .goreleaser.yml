@@ -16,6 +16,25 @@ archives:
     windows: Windows
     386: i386
     amd64: x86_64
+# .goreleaser.yml
+dockers:
+-
+  # GOOS of the built binary that should be used.
+  goos: linux
+  # GOARCH of the built binary that should be used.
+  goarch: amd64
+  # GOARM of the built binary that should be used.
+  goarm: ''
+  # Name templates of the built binaries that should be used.
+  binaries:
+  - cerc
+  # Templates of the Docker image names.
+  image_templates:
+  - "docker.pkg.github.com/32leaves/cerc/cerc:{{ .Tag }}"
+  - "docker.pkg.github.com/32leaves/cerc/cerc:latest"
+  - "docker.pkg.github.com/32leaves/cerc/cerc:v{{ .Major }}"
+  # Path to the Dockerfile (from the project root).
+  dockerfile: Dockerfile
 checksum:
   name_template: 'checksums.txt'
 snapshot:
