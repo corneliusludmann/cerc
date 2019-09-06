@@ -60,7 +60,8 @@ type Pathway struct {
 		Request  Duration `json:"request,omitempty"`
 		Response Duration `json:"response,omitempty"`
 	} `json:"timeouts,omitempty"`
-	Period Duration `json:"duration,omitempty"`
+	Period      Duration `json:"duration,omitempty"`
+	TriggerOnly bool     `json:"triggerOnly,omitempty"`
 }
 
 var validMethods = []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace}
@@ -141,6 +142,14 @@ func (c *Options) validate() error {
 	return nil
 }
 
+func newRunner(c *Cerc, pathway Pathway) *runner {
+	return &runner{
+		C:      c,
+		P:      pathway,
+		active: make(map[string]*probe),
+	}
+}
+
 // runner actually probes/acts on a pathway
 type runner struct {
 	C *Cerc
@@ -151,14 +160,11 @@ type runner struct {
 }
 
 func (r *runner) Run() {
-	r.active = make(map[string]*probe)
-
 	ticker := time.NewTicker(time.Duration(r.P.Period))
 	for {
 		<-ticker.C
 
-		tkn := uuid.NewV4().String()
-		go r.probe(tkn)
+		go r.Probe()
 	}
 }
 
@@ -170,7 +176,9 @@ const (
 	HeaderToken = "X-Cerc-Token"
 )
 
-func (r *runner) probe(tkn string) {
+func (r *runner) Probe() (*probe, error) {
+	tkn := uuid.NewV4().String()
+
 	r.C.Reporter.ProbeStarted(r.P.Name)
 
 	responseURL, err := r.C.buildResponseURL(r.P.Name, tkn)
@@ -180,36 +188,45 @@ func (r *runner) probe(tkn string) {
 			Result:  ProbeNonStarter,
 			Message: fmt.Sprintf("cannot build response URL: %v", err),
 		})
-		return
+		return nil, err
 	}
 
+	// From this point onwards we're beyond the non-starter phase and thus no longer
+	// return error. We have a probe now!.
+	prb := r.registerProbe(tkn)
+
+	var client = &http.Client{Timeout: time.Duration(r.P.Timeouts.Request)}
 	req, err := http.NewRequest(r.P.Method, r.P.Endpoint, strings.NewReader(r.P.Payload))
 	req.Header.Add(HeaderToken, tkn)
 	req.Header.Add(HeaderURL, responseURL.String())
 
-	r.registerProbe(tkn)
-	var client = &http.Client{
-		Timeout: time.Duration(r.P.Timeouts.Request),
-	}
 	resp, err := client.Do(req)
 	if err != nil {
 		r.failProbeIfUnresolved(tkn, err.Error())
-		return
+		return prb, nil
 	}
 	if resp.StatusCode != http.StatusOK {
 		r.failProbeIfUnresolved(tkn, fmt.Sprintf("expected 200 status code, got %d", resp.StatusCode))
-		return
+		return prb, nil
 	}
 
 	// give the others some time to respond to this probe
-	time.Sleep(time.Duration(r.P.Timeouts.Response))
-	r.failProbeIfUnresolved(tkn, "response timeout")
+	go func() {
+		time.Sleep(time.Duration(r.P.Timeouts.Response))
+		r.failProbeIfUnresolved(tkn, "response timeout")
+	}()
+
+	return prb, nil
 }
 
-func (r *runner) registerProbe(tkn string) {
+func (r *runner) registerProbe(tkn string) *probe {
+	p := newProbe()
+
 	r.mu.Lock()
-	r.active[tkn] = &probe{Started: time.Now()}
+	r.active[tkn] = p
 	r.mu.Unlock()
+
+	return p
 }
 
 func (r *runner) failProbeIfUnresolved(tkn, reason string) {
@@ -225,12 +242,15 @@ func (r *runner) failProbeIfUnresolved(tkn, reason string) {
 	delete(r.active, tkn)
 	r.mu.Unlock()
 
-	r.C.Reporter.ProbeFinished(Report{
+	rep := Report{
 		Pathway:  r.P.Name,
 		Result:   ProbeFailure,
 		Message:  reason,
 		Duration: dur,
-	})
+	}
+
+	p.Done(rep)
+	r.C.Reporter.ProbeFinished(rep)
 }
 
 func (r *runner) Answer(tkn string) (ok bool) {
@@ -245,18 +265,51 @@ func (r *runner) Answer(tkn string) (ok bool) {
 	r.mu.Unlock()
 
 	dur := time.Since(p.Started)
-	r.C.Reporter.ProbeFinished(Report{
+	rep := Report{
 		Pathway:  r.P.Name,
 		Result:   ProbeSuccess,
 		Duration: dur,
-	})
+	}
+
+	p.Done(rep)
+	r.C.Reporter.ProbeFinished(rep)
 
 	return true
+}
+
+func newProbe() *probe {
+	return &probe{
+		Started: time.Now(),
+		done:    sync.NewCond(&sync.Mutex{}),
+	}
 }
 
 // probe is an active measurement on a pathway
 type probe struct {
 	Started time.Time
+
+	result *Report
+	done   *sync.Cond
+}
+
+func (p *probe) Done(report Report) {
+	p.done.L.Lock()
+	p.result = &report
+	p.done.L.Unlock()
+
+	p.done.Broadcast()
+}
+
+func (p *probe) Wait() Report {
+	p.done.L.Lock()
+	for p.result == nil {
+		p.done.Wait()
+	}
+
+	r := *p.result
+	p.done.L.Unlock()
+
+	return r
 }
 
 // Cerc is the service itself - create with New()
@@ -276,10 +329,10 @@ type Reporter interface {
 
 // Report reports the result of a probe
 type Report struct {
-	Pathway  string
-	Result   ProbeResult
-	Message  string
-	Duration time.Duration
+	Pathway  string        `json:"pathway"`
+	Result   ProbeResult   `json:"result"`
+	Message  string        `json:"message,omitempty"`
+	Duration time.Duration `json:"duration,omitempty"`
 }
 
 // ProbeResult indicates the success of a pathway probe
@@ -352,43 +405,84 @@ func (c *Cerc) routes() {
 	})
 
 	c.router.HandleFunc("/callback/", c.callback)
+	c.router.HandleFunc("/trigger/", c.trigger)
 }
 
 func (c *Cerc) run() {
 	c.runners = make(map[string]*runner)
 	for _, pth := range c.Config.Pathways {
-		r := &runner{C: c, P: pth}
+		r := newRunner(c, pth)
 		c.runners[pth.Name] = r
 
-		go r.Run()
+		if !pth.TriggerOnly {
+			go r.Run()
+		}
 	}
 }
 
 func (c *Cerc) callback(resp http.ResponseWriter, req *http.Request) {
 	authUser, token, ok := req.BasicAuth()
 	if !ok {
-		resp.WriteHeader(http.StatusUnauthorized)
+		http.Error(resp, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	if authUser != "Bearer" {
-		resp.WriteHeader(http.StatusForbidden)
+		http.Error(resp, "forbidden", http.StatusForbidden)
 		return
 	}
 
 	name := strings.TrimPrefix(req.URL.Path, "/callback/")
 	runner, ok := c.runners[name]
 	if !ok {
-		resp.WriteHeader(http.StatusNotFound)
+		http.Error(resp, "no pathway named "+name, http.StatusNotFound)
 		return
 	}
 
 	ok = runner.Answer(token)
 	if !ok {
-		resp.WriteHeader(http.StatusForbidden)
+		http.Error(resp, "forbidden", http.StatusForbidden)
 		return
 	}
 
 	resp.WriteHeader(http.StatusOK)
+}
+
+func (c *Cerc) trigger(resp http.ResponseWriter, req *http.Request) {
+	if c.Config.Auth != nil {
+		authUser, authPwd, ok := req.BasicAuth()
+		if !ok {
+			http.Error(resp, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if authUser != c.Config.Auth.Username || authPwd != c.Config.Auth.Password {
+			http.Error(resp, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
+
+	name := strings.TrimPrefix(req.URL.Path, "/trigger/")
+	runner, ok := c.runners[name]
+	if !ok {
+		http.Error(resp, "no pathway named "+name, http.StatusNotFound)
+		return
+	}
+
+	prb, err := runner.Probe()
+	if err != nil {
+		// TODO: log
+		resp.WriteHeader(http.StatusInternalServerError)
+		resp.Write([]byte(err.Error()))
+		return
+	}
+
+	rep := prb.Wait()
+
+	resp.WriteHeader(http.StatusOK)
+	err = json.NewEncoder(resp).Encode(rep)
+	if err != nil {
+		resp.Write([]byte(err.Error()))
+	}
 }
 
 func (c *Cerc) buildResponseURL(name, tkn string) (url *url.URL, err error) {
