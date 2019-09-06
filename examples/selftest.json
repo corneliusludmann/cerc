@@ -27,6 +27,7 @@
     },
     "reporting": {
         "log": true,
-        "prometheus": "localhost:9500"
-    }
+        "prometheus": true
+    },
+    "pprof": true
 }

@@ -318,7 +318,6 @@ type Cerc struct {
 	Reporter Reporter
 
 	runners map[string]*runner
-	router  *http.ServeMux
 }
 
 // Reporter gets notified when a probe has run
@@ -372,7 +371,7 @@ func (r *CompositeReporter) ProbeFinished(report Report) {
 }
 
 // Start creates a new cerc instance after validating its configuration
-func Start(cfg Options, rep Reporter) (c *Cerc, err error) {
+func Start(cfg Options, rep Reporter, mux *http.ServeMux) (c *Cerc, err error) {
 	cfg.fillInDefaults()
 	err = cfg.validate()
 	if err != nil {
@@ -383,18 +382,15 @@ func Start(cfg Options, rep Reporter) (c *Cerc, err error) {
 		Config:   cfg,
 		Reporter: rep,
 	}
-	c.routes()
-	go http.ListenAndServe(cfg.Address, c.router)
+	c.routes(mux)
 	c.run()
 
 	return c, nil
 }
 
-func (c *Cerc) routes() {
-	c.router = http.NewServeMux()
-
-	c.router.Handle("/selftest/positive", &Receiver{})
-	c.router.Handle("/selftest/resp-timeout", &Receiver{
+func (c *Cerc) routes(mux *http.ServeMux) {
+	mux.Handle("/selftest/positive", &Receiver{})
+	mux.Handle("/selftest/resp-timeout", &Receiver{
 		Responder: func(url, tkn string) error {
 			go func() {
 				time.Sleep(1 * time.Second)
@@ -404,8 +400,8 @@ func (c *Cerc) routes() {
 		},
 	})
 
-	c.router.HandleFunc("/callback/", c.callback)
-	c.router.HandleFunc("/trigger/", c.trigger)
+	mux.HandleFunc("/callback/", c.callback)
+	mux.HandleFunc("/trigger/", c.trigger)
 }
 
 func (c *Cerc) run() {

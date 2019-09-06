@@ -23,23 +23,27 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/32leaves/cerc/pkg/reporter/prometheus"
 	"io/ioutil"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/32leaves/cerc/pkg/cerc"
+	"github.com/32leaves/cerc/pkg/reporter/prometheus"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
 
 type config struct {
 	Service   cerc.Options `json:"service"`
 	Reporting struct {
-		Log        bool   `json:"log,omitempty"`
-		Prometheus string `json:"prometheus,omitempty"`
+		Log        bool `json:"log,omitempty"`
+		Prometheus bool `json:"prometheus,omitempty"`
 	} `json:"reporting"`
+	PProf bool `json:"pprof,omitempty"`
 }
 
 func main() {
@@ -58,12 +62,20 @@ func main() {
 		log.WithError(err).Fatal("cannot read configuration")
 	}
 
+	mux := http.NewServeMux()
+	go func() {
+		err := http.ListenAndServe(cfg.Service.Address, mux)
+		log.WithError(err).Fatal("cannot run service")
+	}()
+
 	var reporter []cerc.Reporter
 	if cfg.Reporting.Log {
 		reporter = append(reporter, loggingReporter{})
 	}
-	if cfg.Reporting.Prometheus != "" {
-		rep, err := prometheus.StartReporter(cfg.Reporting.Prometheus, cfg.Service.Pathways)
+	if cfg.Reporting.Prometheus {
+		mux.Handle("/metrics", promhttp.Handler())
+
+		rep, err := prometheus.StartReporter(cfg.Service.Pathways)
 		if err != nil {
 			log.WithError(err).Fatal("Prometheus reporter failed to start - exiting")
 			return
@@ -71,9 +83,16 @@ func main() {
 		reporter = append(reporter, rep)
 	}
 
-	c, err := cerc.Start(cfg.Service, cerc.NewCompositeReporter(reporter...))
+	c, err := cerc.Start(cfg.Service, cerc.NewCompositeReporter(reporter...), mux)
 	if err != nil {
 		log.WithError(err).Fatal("cannot start cerc service")
+	}
+
+	if cfg.PProf {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	}
 
 	log.WithField("address", c.Config.Address).Info("cerc is up and running")

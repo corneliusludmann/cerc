@@ -1,17 +1,15 @@
 package prometheus
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/32leaves/cerc/pkg/cerc"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
 
 // StartReporter starts a prometheus reporter
-func StartReporter(addr string, pathways []cerc.Pathway) (*PromReporter, error) {
+func StartReporter(pathways []cerc.Pathway) (*PromReporter, error) {
 	r := &PromReporter{}
 
 	err := r.registerMetrics(pathways)
@@ -19,13 +17,10 @@ func StartReporter(addr string, pathways []cerc.Pathway) (*PromReporter, error) 
 		return nil, err
 	}
 
-	go func() {
-		log.WithField("address", addr+"/metrics").Info("Prometheus reporter running")
-		err := r.Start(addr, pathways)
-		if err != nil {
-			log.WithError(err).Error("cannot start Prometheus reporter")
-		}
-	}()
+	err = r.Start(pathways)
+	if err != nil {
+		return nil, err
+	}
 
 	return r, nil
 }
@@ -38,15 +33,13 @@ type PromReporter struct {
 // Start starts the Prometheus reporter and makes its endpoint available on $addr/metrics.
 // This function does not return until the server crashes/is stopped or err's. It's a good idea
 // to call this as a Go routine.
-func (pr *PromReporter) Start(addr string, pathways []cerc.Pathway) error {
+func (pr *PromReporter) Start(pathways []cerc.Pathway) error {
 	err := pr.registerMetrics(pathways)
 	if err != nil {
 		return err
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	return http.ListenAndServe(addr, mux)
+	return nil
 }
 
 const (
