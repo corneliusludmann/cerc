@@ -32,7 +32,6 @@ dockers:
   image_templates:
   - "docker.pkg.github.com/32leaves/cerc/cerc:{{ .Tag }}"
   - "docker.pkg.github.com/32leaves/cerc/cerc:latest"
-  - "docker.pkg.github.com/32leaves/cerc/cerc:v{{ .Major }}"
   # Path to the Dockerfile (from the project root).
   dockerfile: Dockerfile
 checksum:
