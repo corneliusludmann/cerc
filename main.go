@@ -23,16 +23,24 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/32leaves/cerc/pkg/reporter/prometheus"
 	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/32leaves/cerc/pkg/cerc"
 
 	log "github.com/sirupsen/logrus"
 )
+
+type config struct {
+	Service   cerc.Options `json:"service"`
+	Reporting struct {
+		Log        bool   `json:"log,omitempty"`
+		Prometheus string `json:"prometheus,omitempty"`
+	} `json:"reporting"`
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -44,13 +52,26 @@ func main() {
 		log.WithError(err).Fatal("cannot read configuration")
 	}
 
-	var cfg cerc.Options
+	var cfg config
 	err = json.Unmarshal(fc, &cfg)
 	if err != nil {
 		log.WithError(err).Fatal("cannot read configuration")
 	}
 
-	c, err := cerc.Start(cfg, loggingReporter{})
+	var reporter []cerc.Reporter
+	if cfg.Reporting.Log {
+		reporter = append(reporter, loggingReporter{})
+	}
+	if cfg.Reporting.Prometheus != "" {
+		rep, err := prometheus.StartReporter(cfg.Reporting.Prometheus, cfg.Service.Pathways)
+		if err != nil {
+			log.WithError(err).Fatal("Prometheus reporter failed to start - exiting")
+			return
+		}
+		reporter = append(reporter, rep)
+	}
+
+	c, err := cerc.Start(cfg.Service, cerc.NewCompositeReporter(reporter...))
 	if err != nil {
 		log.WithError(err).Fatal("cannot start cerc service")
 	}
@@ -63,14 +84,14 @@ func main() {
 
 type loggingReporter struct{}
 
-func (loggingReporter) Success(pathway string, dur time.Duration) {
-	log.WithField("pathway", pathway).WithField("duration", dur).Info("circle complete")
-}
-
-func (loggingReporter) Failed(pathway, reason string) {
-	log.WithField("pathway", pathway).WithField("reason", reason).Warn("pathway probe failed")
-}
-
-func (loggingReporter) NonStarter(pathway, reason string) {
-	log.WithField("pathway", pathway).WithField("reason", reason).Warn("pathway probe failed to start")
+func (loggingReporter) ProbeStarted(pathway string) {}
+func (loggingReporter) ProbeFinished(report cerc.Report) {
+	switch report.Result {
+	case cerc.ProbeSuccess:
+		log.WithField("pathway", report.Pathway).WithField("duration", report.Duration).Info("circle complete")
+	case cerc.ProbeFailure:
+		log.WithField("pathway", report.Pathway).WithField("duration", report.Duration).WithField("reason", report.Message).Warn("pathway probe failed")
+	case cerc.ProbeNonStarter:
+		log.WithField("pathway", report.Pathway).WithField("reason", report.Message).Warn("pathway probe failed to start")
+	}
 }

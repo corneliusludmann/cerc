@@ -171,9 +171,15 @@ const (
 )
 
 func (r *runner) probe(tkn string) {
+	r.C.Reporter.ProbeStarted(r.P.Name)
+
 	responseURL, err := r.C.buildResponseURL(r.P.Name, tkn)
 	if err != nil {
-		go r.C.Reporter.NonStarter(r.P.Name, fmt.Sprintf("cannot build response URL: %v", err))
+		r.C.Reporter.ProbeFinished(Report{
+			Pathway: r.P.Name,
+			Result:  ProbeNonStarter,
+			Message: fmt.Sprintf("cannot build response URL: %v", err),
+		})
 		return
 	}
 
@@ -208,17 +214,23 @@ func (r *runner) registerProbe(tkn string) {
 
 func (r *runner) failProbeIfUnresolved(tkn, reason string) {
 	r.mu.Lock()
-	_, exists := r.active[tkn]
+	p, exists := r.active[tkn]
 	if !exists {
 		// probe was resolved earlier - we're done here
 		r.mu.Unlock()
 		return
 	}
+	dur := time.Since(p.Started)
 
 	delete(r.active, tkn)
 	r.mu.Unlock()
 
-	go r.C.Reporter.Failed(r.P.Name, reason)
+	r.C.Reporter.ProbeFinished(Report{
+		Pathway:  r.P.Name,
+		Result:   ProbeFailure,
+		Message:  reason,
+		Duration: dur,
+	})
 }
 
 func (r *runner) Answer(tkn string) (ok bool) {
@@ -232,9 +244,12 @@ func (r *runner) Answer(tkn string) (ok bool) {
 	delete(r.active, tkn)
 	r.mu.Unlock()
 
-	// TODO: tell someone about our success here
 	dur := time.Since(p.Started)
-	go r.C.Reporter.Success(r.P.Name, dur)
+	r.C.Reporter.ProbeFinished(Report{
+		Pathway:  r.P.Name,
+		Result:   ProbeSuccess,
+		Duration: dur,
+	})
 
 	return true
 }
@@ -255,15 +270,52 @@ type Cerc struct {
 
 // Reporter gets notified when a probe has run
 type Reporter interface {
-	// Success is called when a pathway was successfully probed
-	Success(pathway string, duration time.Duration)
+	ProbeStarted(pathway string)
+	ProbeFinished(report Report)
+}
 
-	// Failed is called when a pathway probe failed to respond, e.g. we never got a callback or the callback
-	// indicated failure.
-	Failed(pathway string, reason string)
+// Report reports the result of a probe
+type Report struct {
+	Pathway  string
+	Result   ProbeResult
+	Message  string
+	Duration time.Duration
+}
 
-	// NonStarter is called when we were unable to start a prope due to an internal error
-	NonStarter(pathway string, reason string)
+// ProbeResult indicates the success of a pathway probe
+type ProbeResult string
+
+const (
+	// ProbeSuccess means the probe was successful, i.e. we received a callback
+	ProbeSuccess ProbeResult = "success"
+	// ProbeFailure means the probe was not successful, i.e. we did not receive a callback in time, or the callback indicated failure
+	ProbeFailure ProbeResult = "failure"
+	// ProbeNonStarter means the probe never made the call to the pathway endpoint
+	ProbeNonStarter ProbeResult = "nonstarter"
+)
+
+// CompositeReporter forwards events to multiple reporter
+type CompositeReporter struct {
+	children []Reporter
+}
+
+// NewCompositeReporter creates a new composite reporter
+func NewCompositeReporter(children ...Reporter) *CompositeReporter {
+	return &CompositeReporter{children: children}
+}
+
+// ProbeStarted is called when a new probe was started
+func (r *CompositeReporter) ProbeStarted(pathway string) {
+	for _, cr := range r.children {
+		cr.ProbeStarted(pathway)
+	}
+}
+
+// ProbeFinished is called when the probe has finished
+func (r *CompositeReporter) ProbeFinished(report Report) {
+	for _, cr := range r.children {
+		cr.ProbeFinished(report)
+	}
 }
 
 // Start creates a new cerc instance after validating its configuration
