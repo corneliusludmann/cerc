@@ -1,6 +1,6 @@
 {
     "service": {
-        "address": "localhost:8080",
+        "address": ":8080",
         "defaultPeriod": "10s",
         "pathways": [
             {

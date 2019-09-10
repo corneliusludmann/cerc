@@ -34,6 +34,8 @@ dockers:
   - "docker.pkg.github.com/32leaves/cerc/cerc:latest"
   # Path to the Dockerfile (from the project root).
   dockerfile: Dockerfile
+  extra_files:
+  - examples/selftest.json
 checksum:
   name_template: 'checksums.txt'
 snapshot:

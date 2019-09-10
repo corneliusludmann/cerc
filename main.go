@@ -37,7 +37,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type config struct {
+// Config configrues the cerc service
+type Config struct {
 	Service   cerc.Options `json:"service"`
 	Reporting struct {
 		Log        bool `json:"log,omitempty"`
@@ -56,7 +57,7 @@ func main() {
 		log.WithError(err).Fatal("cannot read configuration")
 	}
 
-	var cfg config
+	var cfg Config
 	err = json.Unmarshal(fc, &cfg)
 	if err != nil {
 		log.WithError(err).Fatal("cannot read configuration")
