@@ -60,8 +60,9 @@ type Pathway struct {
 		Request  Duration `json:"request,omitempty"`
 		Response Duration `json:"response,omitempty"`
 	} `json:"timeouts,omitempty"`
-	Period      Duration `json:"duration,omitempty"`
-	TriggerOnly bool     `json:"triggerOnly,omitempty"`
+	Period              Duration `json:"duration,omitempty"`
+	TriggerOnly         bool     `json:"triggerOnly,omitempty"`
+	ResponseURLTemplate string   `json:"responseURLTemplate,omitempty"`
 }
 
 var validMethods = []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace}
@@ -107,7 +108,7 @@ type Options struct {
 // fillInDefaults completes the options by setting default values if needed
 func (c *Options) fillInDefaults() {
 	if c.ResponseURLTemplate == "" {
-		c.ResponseURLTemplate = "{{ .Scheme }}://{{ .Address }}/callback/{{ .Name }}"
+		c.ResponseURLTemplate = defaultResponseURLTemplate
 	}
 
 	if c.DefaultPeriod == Duration(0*time.Second) {
@@ -174,6 +175,9 @@ const (
 
 	// HeaderToken is the HTTP sent along with Cerc requests which contains the token to authenticate the response as
 	HeaderToken = "X-Cerc-Token"
+
+	// defaultResponseURLTemplate is used if no custom response URL template is configured
+	defaultResponseURLTemplate = "{{ .Scheme }}://{{ .Address }}/callback/{{ .Name }}"
 )
 
 func (r *runner) Probe() (*probe, error) {
@@ -181,7 +185,7 @@ func (r *runner) Probe() (*probe, error) {
 
 	r.C.Reporter.ProbeStarted(r.P.Name)
 
-	responseURL, err := r.C.buildResponseURL(r.P.Name, tkn)
+	responseURL, err := r.C.buildResponseURL(r.P.ResponseURLTemplate, r.P.Name, tkn)
 	if err != nil {
 		r.C.Reporter.ProbeFinished(Report{
 			Pathway: r.P.Name,
@@ -481,8 +485,11 @@ func (c *Cerc) trigger(resp http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (c *Cerc) buildResponseURL(name, tkn string) (url *url.URL, err error) {
-	tpl, err := template.New("url").Parse(c.Config.ResponseURLTemplate)
+func (c *Cerc) buildResponseURL(ptpl, name, tkn string) (url *url.URL, err error) {
+	if ptpl == "" {
+		ptpl = c.Config.ResponseURLTemplate
+	}
+	tpl, err := template.New("url").Parse(ptpl)
 	if err != nil {
 		return nil, err
 	}
