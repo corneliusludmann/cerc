@@ -9,11 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     #needs: [ test ]
     steps:
-    - name: Login to GitHub Docker Registry
-      run: docker login docker.pkg.github.com --username $DOCKER_USERNAME --password $DOCKER_PASSWORD
-      env:
-        DOCKER_USERNAME: ${{ secrets.GITHUB_DOCKER_USERNAME }}
-        DOCKER_PASSWORD: ${{ secrets.GITHUB_DOCKER_TOKEN }}
     - name: Check out code
       uses: actions/checkout@master
     - name: goreleaser
@@ -22,7 +17,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         DOCKER_USERNAME: ${{ secrets.GITHUB_DOCKER_USERNAME }}
         DOCKER_PASSWORD: ${{ secrets.GITHUB_DOCKER_TOKEN }}
-        DOCKER_REGISTRY: docker.pkg.github.com
+        DOCKER_REGISTRY: docker.io
       with:
         args: release
       if: success()
