@@ -44,7 +44,8 @@ type Config struct {
 		Log        bool `json:"log,omitempty"`
 		Prometheus bool `json:"prometheus,omitempty"`
 	} `json:"reporting"`
-	PProf bool `json:"pprof,omitempty"`
+	PProf       bool `json:"pprof,omitempty"`
+	JSONLogging bool `json:"jsonLogging,omitempty"`
 }
 
 func main() {
@@ -61,6 +62,15 @@ func main() {
 	err = json.Unmarshal(fc, &cfg)
 	if err != nil {
 		log.WithError(err).Fatal("cannot read configuration")
+	}
+
+	if cfg.JSONLogging {
+		log.SetFormatter(&log.JSONFormatter{
+			FieldMap: log.FieldMap{
+				log.FieldKeyLevel: "severity",
+				log.FieldKeyMsg:   "message",
+			},
+		})
 	}
 
 	mux := http.NewServeMux()

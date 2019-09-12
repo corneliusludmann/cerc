@@ -29,5 +29,6 @@
         "log": true,
         "prometheus": true
     },
-    "pprof": true
+    "pprof": true,
+    "jsonLogging": true
 }
