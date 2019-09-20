@@ -1,4 +1,4 @@
-FROM scratch
+FROM alpine:latest
 
 COPY examples/selftest.json selftest.json
 COPY cerc /
