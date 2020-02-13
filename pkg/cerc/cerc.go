@@ -198,9 +198,10 @@ func (r *runner) Probe() (*probe, error) {
 	responseURL, err := r.C.buildResponseURL(r.P.ResponseURLTemplate, r.P.Name, tkn)
 	if err != nil {
 		r.C.Reporter.ProbeFinished(Report{
-			Pathway: r.P.Name,
-			Result:  ProbeNonStarter,
-			Message: fmt.Sprintf("cannot build response URL: %v", err),
+			Pathway:   r.P.Name,
+			Result:    ProbeNonStarter,
+			Message:   fmt.Sprintf("cannot build response URL: %v", err),
+			Timestamp: time.Now(),
 		})
 		return nil, err
 	}
@@ -257,10 +258,11 @@ func (r *runner) failProbeIfUnresolved(tkn, reason string) {
 	r.mu.Unlock()
 
 	rep := Report{
-		Pathway:  r.P.Name,
-		Result:   ProbeFailure,
-		Message:  reason,
-		Duration: dur,
+		Pathway:   r.P.Name,
+		Result:    ProbeFailure,
+		Message:   reason,
+		Duration:  dur,
+		Timestamp: time.Now(),
 	}
 
 	p.Done(rep)
@@ -280,9 +282,10 @@ func (r *runner) Answer(tkn string) (ok bool) {
 
 	dur := time.Since(p.Started)
 	rep := Report{
-		Pathway:  r.P.Name,
-		Result:   ProbeSuccess,
-		Duration: dur,
+		Pathway:   r.P.Name,
+		Result:    ProbeSuccess,
+		Duration:  dur,
+		Timestamp: time.Now(),
 	}
 
 	p.Done(rep)
@@ -342,10 +345,11 @@ type Reporter interface {
 
 // Report reports the result of a probe
 type Report struct {
-	Pathway  string        `json:"pathway"`
-	Result   ProbeResult   `json:"result"`
-	Message  string        `json:"message,omitempty"`
-	Duration time.Duration `json:"duration,omitempty"`
+	Pathway   string        `json:"pathway"`
+	Result    ProbeResult   `json:"result"`
+	Message   string        `json:"message,omitempty"`
+	Duration  time.Duration `json:"duration,omitempty"`
+	Timestamp time.Time     `json:"timestamp,omitempty"`
 }
 
 // ProbeResult indicates the success of a pathway probe
