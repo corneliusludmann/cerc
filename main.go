@@ -49,7 +49,7 @@ type Config struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help" {
 		log.Fatalf("usage: %s <config.json>", os.Args[0])
 	}
 
