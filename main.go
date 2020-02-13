@@ -31,6 +31,7 @@ import (
 	"syscall"
 
 	"github.com/32leaves/cerc/pkg/cerc"
+	"github.com/32leaves/cerc/pkg/reporter/httpendpoint"
 	"github.com/32leaves/cerc/pkg/reporter/prometheus"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -41,8 +42,9 @@ import (
 type Config struct {
 	Service   cerc.Options `json:"service"`
 	Reporting struct {
-		Log        bool `json:"log,omitempty"`
-		Prometheus bool `json:"prometheus,omitempty"`
+		Log          bool `json:"log,omitempty"`
+		Prometheus   bool `json:"prometheus,omitempty"`
+		HTTPEndpoint bool `json:"httpEndpoint,omitempty"`
 	} `json:"reporting"`
 	PProf       bool `json:"pprof,omitempty"`
 	JSONLogging bool `json:"jsonLogging,omitempty"`
@@ -91,6 +93,11 @@ func main() {
 			log.WithError(err).Fatal("Prometheus reporter failed to start - exiting")
 			return
 		}
+		reporter = append(reporter, rep)
+	}
+	if cfg.Reporting.HTTPEndpoint {
+		rep := httpendpoint.NewReporter()
+		mux.HandleFunc("/status", rep.Serve)
 		reporter = append(reporter, rep)
 	}
 
