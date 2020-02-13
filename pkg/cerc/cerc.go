@@ -60,7 +60,7 @@ type Pathway struct {
 		Request  Duration `json:"request,omitempty"`
 		Response Duration `json:"response,omitempty"`
 	} `json:"timeouts,omitempty"`
-	Period              Duration `json:"duration,omitempty"`
+	Period              Duration `json:"period,omitempty"`
 	TriggerOnly         bool     `json:"triggerOnly,omitempty"`
 	ResponseURLTemplate string   `json:"responseURLTemplate,omitempty"`
 }
