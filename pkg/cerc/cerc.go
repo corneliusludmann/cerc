@@ -270,7 +270,7 @@ func (r *runner) failProbeIfUnresolved(tkn, reason string) {
 	r.C.Reporter.ProbeFinished(rep)
 }
 
-func (r *runner) Answer(tkn string, message string) (ok bool) {
+func (r *runner) Answer(tkn string, message string, result ProbeResult) (ok bool) {
 	r.mu.Lock()
 
 	p, ok := r.active[tkn]
@@ -284,7 +284,7 @@ func (r *runner) Answer(tkn string, message string) (ok bool) {
 	dur := time.Since(p.Started)
 	rep := Report{
 		Pathway:   r.P.Name,
-		Result:    ProbeSuccess,
+		Result:    result,
 		Duration:  dur,
 		Message:   message,
 		Timestamp: time.Now(),
@@ -509,8 +509,15 @@ func (c *Cerc) callback(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	body, _ := ioutil.ReadAll(req.Body)
+	resultParam := strings.TrimSpace(req.URL.Query().Get("result"))
+	var result ProbeResult
+	if len(resultParam) == 0 || resultParam == string(ProbeSuccess) {
+		result = ProbeSuccess
+	} else {
+		result = ProbeFailure
+	}
 
-	ok = runner.Answer(token, string(body))
+	ok = runner.Answer(token, string(body), result)
 	if !ok {
 		http.Error(resp, "forbidden", http.StatusForbidden)
 		return
