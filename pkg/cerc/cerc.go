@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/satori/go.uuid"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/xerrors"
 )
 
@@ -144,6 +145,7 @@ func (c *Options) validate() error {
 }
 
 func newRunner(c *Cerc, pathway Pathway) *runner {
+	log.WithField("pathway", pathway.Name).Debugf("creating runner with period %s", time.Duration(pathway.Period).String())
 	return &runner{
 		C:      c,
 		P:      pathway,
@@ -161,6 +163,11 @@ type runner struct {
 }
 
 func (r *runner) Run() {
+
+	// start with an inital run
+	go r.Probe()
+
+	// start ticker for subsequent runs
 	ticker := time.NewTicker(time.Duration(r.P.Period))
 	for {
 		<-ticker.C
@@ -181,6 +188,9 @@ const (
 )
 
 func (r *runner) Probe() (*probe, error) {
+
+	log.WithField("pathway", r.P.Name).Debug("probe started")
+
 	tkn := uuid.NewV4().String()
 
 	r.C.Reporter.ProbeStarted(r.P.Name)
@@ -387,9 +397,63 @@ func Start(cfg Options, rep Reporter, mux *http.ServeMux) (c *Cerc, err error) {
 		Reporter: rep,
 	}
 	c.routes(mux)
+	// wait that server is ready otherwise the first run could fail
+	waitForServer(*c)
 	c.run()
 
 	return c, nil
+}
+
+func waitForServer(c Cerc) {
+
+	var url string
+	urlFallback := false
+
+	if len(c.Config.Pathways) > 0 {
+		// just checking the first pathway, expecting that others work as well when the first one works
+		firstPathway := c.Config.Pathways[0]
+		fullurl, err := c.buildResponseURL(firstPathway.ResponseURLTemplate, firstPathway.Name, "tkn")
+		if err == nil {
+			url = fullurl.String()
+		} else {
+			log.Warn("could not build response URL of first pathway ", err)
+			urlFallback = true
+		}
+	} else {
+		urlFallback = true
+	}
+
+	if urlFallback {
+		url = c.Config.Address
+		if strings.HasPrefix(url, ":") {
+			url = "localhost" + url
+		}
+		scheme := "https"
+		if c.Config.HTTPS.Cert == "" || c.Config.HTTPS.Key == "" {
+			scheme = "http"
+		}
+		url = scheme + "://" + url + "/callback/"
+	}
+
+	log.Debug("waiting for server on ", url)
+
+	expectedStatus := http.StatusUnauthorized
+
+	for {
+		resp, err := http.Get(url)
+		if err != nil {
+			time.Sleep(time.Second)
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode != expectedStatus {
+			time.Sleep(time.Second)
+			continue
+		}
+		break
+	}
+
+	log.Debug("server is listening")
 }
 
 func (c *Cerc) routes(mux *http.ServeMux) {
