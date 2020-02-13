@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -269,7 +270,7 @@ func (r *runner) failProbeIfUnresolved(tkn, reason string) {
 	r.C.Reporter.ProbeFinished(rep)
 }
 
-func (r *runner) Answer(tkn string) (ok bool) {
+func (r *runner) Answer(tkn string, message string) (ok bool) {
 	r.mu.Lock()
 
 	p, ok := r.active[tkn]
@@ -285,6 +286,7 @@ func (r *runner) Answer(tkn string) (ok bool) {
 		Pathway:   r.P.Name,
 		Result:    ProbeSuccess,
 		Duration:  dur,
+		Message:   message,
 		Timestamp: time.Now(),
 	}
 
@@ -506,7 +508,9 @@ func (c *Cerc) callback(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ok = runner.Answer(token)
+	body, _ := ioutil.ReadAll(req.Body)
+
+	ok = runner.Answer(token, string(body))
 	if !ok {
 		http.Error(resp, "forbidden", http.StatusForbidden)
 		return
