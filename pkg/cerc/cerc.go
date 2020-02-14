@@ -105,6 +105,7 @@ type Options struct {
 	DefaultPeriod       Duration   `json:"defaultPeriod"`
 	Auth                *BasicAuth `json:"auth,omitempty"`
 	ResponseURLTemplate string     `json:"responseURLTemplate,omitempty"`
+	FirstRunDelay       Duration   `json:"firstRunDelay"`
 }
 
 // fillInDefaults completes the options by setting default values if needed
@@ -166,6 +167,9 @@ type runner struct {
 func (r *runner) Run() {
 
 	// start with an inital run
+	if r.C.Config.FirstRunDelay > Duration(0*time.Second) {
+		time.Sleep(time.Duration(r.C.Config.FirstRunDelay))
+	}
 	go r.Probe()
 
 	// start ticker for subsequent runs
