@@ -7,7 +7,10 @@ import (
 
 	"github.com/32leaves/cerc/pkg/cerc"
 	"github.com/jeremywohl/flatten"
+	log "github.com/sirupsen/logrus"
 )
+
+const failStatusCode = http.StatusNotAcceptable
 
 // Reporter holds cerc reports in memory and serves them via HTTP
 type Reporter struct {
@@ -33,28 +36,43 @@ func (reporter *Reporter) ProbeFinished(report cerc.Report) {
 func (reporter *Reporter) Serve(w http.ResponseWriter, r *http.Request) {
 
 	var (
-		msg []byte
-		err error
+		result     interface{}
+		statusCode int = http.StatusOK
 	)
 
 	format := r.FormValue("format")
 	switch format {
 	case "raw":
-		msg, err = json.Marshal(reporter.reports)
+		for _, r := range reporter.reports {
+			if r.Result != cerc.ProbeSuccess {
+				statusCode = failStatusCode
+			}
+		}
+		result = reporter.reports
 	case "json_flat":
-		msg, err = json.Marshal(reporter.summary(true))
+		result, statusCode = reporter.summary(true)
 	default:
-		msg, err = json.Marshal(reporter.summary(false))
+		result, statusCode = reporter.summary(false)
 	}
 
+	msg, err := json.Marshal(result)
+
 	if err != nil {
+		log.WithError(err).Fatal("error marshalling JSON response")
+		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintln(w, "unexpected error", err)
 	} else {
+		if statusCode != http.StatusOK {
+			log.WithField("response", string(msg)).Warn("responding with UNHEALTHY status")
+		} else {
+			log.WithField("response", string(msg)).Info("responding with HEALTHY status")
+		}
+		w.WriteHeader(statusCode)
 		fmt.Fprintln(w, string(msg))
 	}
 }
 
-func (reporter *Reporter) summary(flat bool) map[string]interface{} {
+func (reporter *Reporter) summary(flat bool) (map[string]interface{}, int) {
 	result := make(map[string]interface{})
 	result["status"] = "healthy"
 	for _, r := range reporter.reports {
@@ -72,9 +90,13 @@ func (reporter *Reporter) summary(flat bool) map[string]interface{} {
 			"timestamp": r.Timestamp,
 		}
 	}
+	var statusCode = http.StatusOK
+	if result["status"] != "healthy" {
+		statusCode = failStatusCode
+	}
 	if flat {
 		result, _ = flatten.Flatten(result, "", flatten.DotStyle)
-		return result
+		return result, statusCode
 	}
-	return result
+	return result, statusCode
 }
